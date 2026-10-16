@@ -1,0 +1,6 @@
+{
+  "name": "Fit Buddy",
+  "description": "Smart fitness & nutrition companion with Mifflin-St Jeor macro tracking, food logging, analytics, weight goals, and Gemini AI coach.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
