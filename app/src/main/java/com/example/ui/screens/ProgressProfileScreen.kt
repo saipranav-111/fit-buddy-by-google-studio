@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,7 +85,8 @@ fun ProgressProfileScreen(
     streakDays: Int,
     onLogWeight: (weightKg: Float, note: String) -> Unit,
     onDeleteWeight: (Long) -> Unit,
-    onUpdateProfile: (UserProfile) -> Unit
+    onUpdateProfile: (UserProfile) -> Unit,
+    onSignOut: () -> Unit = {}
 ) {
     var showWeightDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
@@ -384,6 +387,52 @@ fun ProgressProfileScreen(
                 Column(modifier = Modifier.padding(18.dp)) {
                     Text(text = "Data & Account", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(10.dp))
+
+                    val currentUser = Firebase.auth.currentUser
+                    if (currentUser != null) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Google Account (Firebase)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = EmeraldPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = currentUser.email ?: currentUser.uid,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(EmeraldPrimary.copy(alpha = 0.2f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "Cloud Synced",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldPrimary
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
                     Button(
                         onClick = { showExportDialog = true },
                         modifier = Modifier.fillMaxWidth(),
@@ -391,6 +440,23 @@ fun ProgressProfileScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
                         Text(text = "View Data Export Summary", color = MaterialTheme.colorScheme.onSurface)
+                    }
+
+                    if (currentUser != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = onSignOut,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("sign_out_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        ) {
+                            Text(text = "Sign Out of Google", fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }

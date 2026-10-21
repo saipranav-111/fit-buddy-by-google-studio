@@ -35,12 +35,21 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+import com.example.data.FitBuddyFirestoreRepository
+import com.example.data.FirestoreMealLog
+import com.example.data.FirestoreUserProfile
+import com.example.data.FirestoreWeightLog
+import com.example.data.FirestoreWorkoutPlan
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
+
 class FitBuddyViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = FitBuddyDatabase.getDatabase(application, viewModelScope)
     private val dao = database.fitBuddyDao()
     private val prefs = UserPreferencesRepository(application)
     private val aiService = AiCoachService()
+    private val firestoreRepo = FitBuddyFirestoreRepository(application)
 
     val userProfile: StateFlow<UserProfile> = prefs.userProfile
 
@@ -177,11 +186,34 @@ class FitBuddyViewModel(application: Application) : AndroidViewModel(application
     val activeGymSession: StateFlow<List<com.example.model.ActiveGymExerciseItem>> = _activeGymSession.asStateFlow()
 
     init {
-        // Seed initial weight log if none exists
+        // Seed initial weight log if none exists and sync with Firebase
         viewModelScope.launch(Dispatchers.IO) {
             val count = dao.getAllWeightLogs()
-            // We ensure streak is checked
             _streak.value = prefs.getStreak()
+
+            val authUser = Firebase.auth.currentUser
+            if (authUser != null) {
+                val cloudResult = firestoreRepo.getUserProfile(authUser.uid)
+                val cloudProfile = cloudResult.getOrNull()
+                if (cloudProfile != null && !prefs.userProfile.value.isProfileComplete) {
+                    val restored = UserProfile(
+                        name = cloudProfile.name,
+                        age = cloudProfile.age,
+                        gender = try { com.example.model.Gender.valueOf(cloudProfile.gender) } catch (e: Exception) { com.example.model.Gender.MALE },
+                        heightCm = cloudProfile.heightCm.toFloat(),
+                        weightKg = cloudProfile.weightKg.toFloat(),
+                        targetWeightKg = cloudProfile.weightKg.toFloat(),
+                        activityLevel = try { com.example.model.ActivityLevel.valueOf(cloudProfile.activityLevel) } catch (e: Exception) { com.example.model.ActivityLevel.MODERATELY_ACTIVE },
+                        goal = try { FitnessGoal.valueOf(cloudProfile.goal) } catch (e: Exception) { FitnessGoal.MAINTAIN },
+                        targetCalories = cloudProfile.targetCalories,
+                        targetProteinG = cloudProfile.targetProteinG.toInt(),
+                        targetCarbsG = cloudProfile.targetCarbsG.toInt(),
+                        targetFatG = cloudProfile.targetFatG.toInt(),
+                        isProfileComplete = true
+                    )
+                    prefs.saveProfile(restored)
+                }
+            }
         }
     }
 
@@ -228,6 +260,29 @@ class FitBuddyViewModel(application: Application) : AndroidViewModel(application
         _selectedGymBodyType.value = bodyType
         _selectedGymGoal.value = gymGoal
 
+        // Sync to Firebase Cloud
+        val authUser = Firebase.auth.currentUser
+        if (authUser != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                firestoreRepo.saveUserProfile(
+                    FirestoreUserProfile(
+                        userId = authUser.uid,
+                        name = profile.name,
+                        age = profile.age,
+                        gender = profile.gender.name,
+                        heightCm = profile.heightCm.toDouble(),
+                        weightKg = profile.weightKg.toDouble(),
+                        activityLevel = profile.activityLevel.name,
+                        goal = profile.goal.name,
+                        targetCalories = profile.targetCalories,
+                        targetProteinG = profile.targetProteinG.toDouble(),
+                        targetCarbsG = profile.targetCarbsG.toDouble(),
+                        targetFatG = profile.targetFatG.toDouble()
+                    )
+                )
+            }
+        }
+
         // Also add first weight log
         viewModelScope.launch(Dispatchers.IO) {
             dao.insertWeightLog(
@@ -242,6 +297,27 @@ class FitBuddyViewModel(application: Application) : AndroidViewModel(application
 
     fun updateProfile(profile: UserProfile) {
         prefs.saveProfile(profile)
+        val authUser = Firebase.auth.currentUser
+        if (authUser != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                firestoreRepo.saveUserProfile(
+                    FirestoreUserProfile(
+                        userId = authUser.uid,
+                        name = profile.name,
+                        age = profile.age,
+                        gender = profile.gender.name,
+                        heightCm = profile.heightCm.toDouble(),
+                        weightKg = profile.weightKg.toDouble(),
+                        activityLevel = profile.activityLevel.name,
+                        goal = profile.goal.name,
+                        targetCalories = profile.targetCalories,
+                        targetProteinG = profile.targetProteinG.toDouble(),
+                        targetCarbsG = profile.targetCarbsG.toDouble(),
+                        targetFatG = profile.targetFatG.toDouble()
+                    )
+                )
+            }
+        }
     }
 
     fun setSelectedDate(date: String) {
@@ -271,6 +347,23 @@ class FitBuddyViewModel(application: Application) : AndroidViewModel(application
             dao.insertMealLog(log)
             val updatedStreak = prefs.recordLogForStreak(date)
             _streak.value = updatedStreak
+
+            val authUser = Firebase.auth.currentUser
+            if (authUser != null) {
+                firestoreRepo.addMealLog(
+                    FirestoreMealLog(
+                        userId = authUser.uid,
+                        foodName = food.name,
+                        portionGrams = amountGrams.toDouble(),
+                        calories = log.calories.toDouble(),
+                        proteinG = log.protein.toDouble(),
+                        carbsG = log.carbs.toDouble(),
+                        fatG = log.fat.toDouble(),
+                        mealType = mealType.displayName,
+                        date = date
+                    )
+                )
+            }
         }
     }
 
@@ -334,6 +427,18 @@ class FitBuddyViewModel(application: Application) : AndroidViewModel(application
                     targetFatG = targets.fat
                 )
             )
+
+            val authUser = Firebase.auth.currentUser
+            if (authUser != null) {
+                firestoreRepo.addWeightLog(
+                    FirestoreWeightLog(
+                        userId = authUser.uid,
+                        weightKg = weightKg.toDouble(),
+                        date = prefs.getTodayDateString(),
+                        note = note
+                    )
+                )
+            }
         }
     }
 
@@ -408,6 +513,21 @@ class FitBuddyViewModel(application: Application) : AndroidViewModel(application
                     planDetailsJson = summaryText
                 )
             )
+
+            val authUser = Firebase.auth.currentUser
+            if (authUser != null) {
+                firestoreRepo.saveWorkoutPlan(
+                    FirestoreWorkoutPlan(
+                        userId = authUser.uid,
+                        goal = routine.days.firstOrNull()?.focus ?: "Fitness",
+                        level = "Custom",
+                        daysPerWeek = routine.days.size,
+                        splitName = routine.title,
+                        planSummary = routine.summary,
+                        daysJson = summaryText
+                    )
+                )
+            }
         }
     }
 

@@ -1,0 +1,154 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             (!('age' in data) || (data.age is int && data.age >= 10 && data.age <= 120)) &&
+             (!('gender' in data) || data.gender in ['MALE', 'FEMALE', 'OTHER']) &&
+             (!('heightCm' in data) || (data.heightCm is number && data.heightCm >= 50 && data.heightCm <= 300)) &&
+             (!('weightKg' in data) || (data.weightKg is number && data.weightKg >= 20 && data.weightKg <= 500)) &&
+             (!('activityLevel' in data) || (data.activityLevel is string && data.activityLevel.size() <= 50)) &&
+             (!('goal' in data) || (data.goal is string && data.goal.size() <= 50)) &&
+             (!('targetCalories' in data) || (data.targetCalories is int && data.targetCalories >= 500 && data.targetCalories <= 10000)) &&
+             (!('targetProteinG' in data) || (data.targetProteinG is number && data.targetProteinG >= 0 && data.targetProteinG <= 1000)) &&
+             (!('targetCarbsG' in data) || (data.targetCarbsG is number && data.targetCarbsG >= 0 && data.targetCarbsG <= 2000)) &&
+             (!('targetFatG' in data) || (data.targetFatG is number && data.targetFatG >= 0 && data.targetFatG <= 1000));
+    }
+
+    function isValidMealLog(data) {
+      return data.userId is string &&
+             data.foodName is string && data.foodName.size() > 0 && data.foodName.size() <= 150 &&
+             data.portionGrams is number && data.portionGrams > 0 && data.portionGrams <= 5000 &&
+             data.calories is number && data.calories >= 0 && data.calories <= 10000 &&
+             (!('proteinG' in data) || (data.proteinG is number && data.proteinG >= 0 && data.proteinG <= 1000)) &&
+             (!('carbsG' in data) || (data.carbsG is number && data.carbsG >= 0 && data.carbsG <= 2000)) &&
+             (!('fatG' in data) || (data.fatG is number && data.fatG >= 0 && data.fatG <= 1000)) &&
+             data.mealType is string && data.mealType in ['BREAKFAST', 'LUNCH', 'DINNER', 'SNACKS', 'Breakfast', 'Lunch', 'Dinner', 'Snacks'] &&
+             data.date is string && data.date.size() <= 20;
+    }
+
+    function isValidWeightLog(data) {
+      return data.userId is string &&
+             data.weightKg is number && data.weightKg >= 20 && data.weightKg <= 500 &&
+             data.date is string && data.date.size() <= 20 &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 300));
+    }
+
+    function isValidWorkoutPlan(data) {
+      return data.userId is string &&
+             data.goal is string && data.goal.size() <= 100 &&
+             data.splitName is string && data.splitName.size() <= 150 &&
+             (!('level' in data) || (data.level is string && data.level.size() <= 50)) &&
+             (!('daysPerWeek' in data) || (data.daysPerWeek is int && data.daysPerWeek >= 1 && data.daysPerWeek <= 7)) &&
+             (!('planSummary' in data) || (data.planSummary is string && data.planSummary.size() <= 1000)) &&
+             data.daysJson is string && data.daysJson.size() <= 50000;
+    }
+
+    // User Profile
+    match /users/{userId} {
+      allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().createdAt is timestamp &&
+                       incoming().createdAt <= request.time &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       request.auth.uid == userId &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (!('updatedAt' in incoming()) || (incoming().updatedAt is timestamp && incoming().updatedAt <= request.time)) &&
+                       isValidUserProfile(incoming());
+
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+
+      // Meal Logs Subcollection
+      match /meal_logs/{mealId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().createdAt is timestamp &&
+                         incoming().createdAt <= request.time &&
+                         isValidMealLog(incoming());
+
+        allow update: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         (!('updatedAt' in incoming()) || (incoming().updatedAt is timestamp && incoming().updatedAt <= request.time)) &&
+                         isValidMealLog(incoming());
+
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      // Weight Logs Subcollection
+      match /weight_logs/{logId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().createdAt is timestamp &&
+                         incoming().createdAt <= request.time &&
+                         isValidWeightLog(incoming());
+
+        allow update: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         (!('updatedAt' in incoming()) || (incoming().updatedAt is timestamp && incoming().updatedAt <= request.time)) &&
+                         isValidWeightLog(incoming());
+
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      // Saved Workout Plans Subcollection
+      match /workout_plans/{planId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().createdAt is timestamp &&
+                         incoming().createdAt <= request.time &&
+                         isValidWorkoutPlan(incoming());
+
+        allow update: if isSignedIn() &&
+                         request.auth.uid == userId &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         (!('updatedAt' in incoming()) || (incoming().updatedAt is timestamp && incoming().updatedAt <= request.time)) &&
+                         isValidWorkoutPlan(incoming());
+
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+  }
+}
